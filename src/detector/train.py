@@ -8,7 +8,15 @@ import joblib
 import os
 
 # Configuration of relative paths
-DATA_PATH = "../../data/raw/creditcard.csv"
+BASE_DATA_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_PATH = os.path.join(
+    BASE_DATA_DIR,
+    "..",
+    "..",
+    "data",
+    "raw",
+    "creditcard.csv"
+    )
 MODEL_DIR = "../../models"
 MODEL_PATH = os.path.join(MODEL_DIR, "fraud_xgboost.joblib")
 RANDOM_STATE = 42
@@ -23,4 +31,4 @@ def load_data(path):
     print(f"Data loaded : {df.shape[0]} rows")
     return df
 
-load_data(DATA_PATH)
+df = load_data(DATA_PATH)
