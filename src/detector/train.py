@@ -19,6 +19,8 @@ def load_data(path):
         raise FileNotFoundError(f"ERROR: The file was not found in the path {path}")
     
     print("Loading data...")
-    df = pd.read.csv(path)
-    print(f"Data loaded : [df.shape[0]] rows")
+    df = pd.read_csv(path)
+    print(f"Data loaded : {df.shape[0]} rows")
     return df
+
+load_data(DATA_PATH)
