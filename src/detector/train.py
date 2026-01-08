@@ -6,19 +6,14 @@ from sklearn.metrics import classification_report, confusion_matrix
 from imblearn.over_sampling import SMOTE
 import joblib
 import os
+from pathlib import Path
+
 
 # Configuration of relative paths
-BASE_DATA_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_PATH = os.path.join(
-    BASE_DATA_DIR,
-    "..",
-    "..",
-    "data",
-    "raw",
-    "creditcard.csv"
-    )
-MODEL_DIR = "../../models"
-MODEL_PATH = os.path.join(MODEL_DIR, "fraud_xgboost.joblib")
+BASE_DATA_DIR = Path(__file__).resolve().parent
+DATA_PATH = BASE_DATA_DIR.parent.parent / "data" / "raw" / "creditcard.csv"
+MODEL_DIR = BASE_DATA_DIR.parent.parent / "models"
+MODEL_PATH = MODEL_DIR / "fraud_xgboost.joblib"
 RANDOM_STATE = 42
 
 def load_data(path):
@@ -30,5 +25,3 @@ def load_data(path):
     df = pd.read_csv(path)
     print(f"Data loaded : {df.shape[0]} rows")
     return df
-
-df = load_data(DATA_PATH)
