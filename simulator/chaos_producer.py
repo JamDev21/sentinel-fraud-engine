@@ -1,41 +1,43 @@
 import pandas as pd
-import requests
-import time
+import json
+import os
+import asyncio
 from typing import Dict, Any
+from aiokafka import AIOKafkaProducer
 
-API_URL = "http://127.0.0.1:8000/predict"
+# --- 1. CONFIGURATION ---
+REDPANDA_BROKER = os.getenv("REDPANDA_BROKER", "localhost:19092")
+TOPIC = "financial-transactions"
 DATA_PATH = "data/shadow_test/shadow_test_data.csv"
 
-def run_infinite_shadow_stream(requests_per_second: int = 3) -> None:
-    """
-    Executes a shadow testing simulation by replaying real historical data 
-    against the live Sentinel API. Tracks business-critical metrics in real-time.
-    """
-    # Load the holdout dataset. Using real data ensures we evaluate the model 
-    # against actual fraud patterns rather than synthetic (Faker) anomalies.
+async def run_shadow_stream(requests_per_second: int = 3) -> None:
+    # Load the holdout dataset (Real distributions, not Faker)
     try:
         df = pd.read_csv(DATA_PATH)
     except FileNotFoundError:
-        print(f"Error: Could not locate the dataset at {DATA_PATH}.")
+        print(f"Error: Could not locate dataset at {DATA_PATH}.")
         return
 
-    print(f"Initiating Infinite Stream with {len(df)} real patterns...")
-    print(f"Firing at {requests_per_second} requests/second...")
-    print("-" * 75)
+    # Initialize the asynchronous Kafka Producer
+    producer = AIOKafkaProducer(
+        bootstrap_servers=REDPANDA_BROKER,
+        value_serializer=lambda v: json.dumps(v).encode('utf-8')
+    )
     
-    # Advanced tracking metrics for the real-time confusion matrix
-    total = 0
-    true_positives = 0  # Correctly blocked fraud
-    false_positives = 0 # Honest clients blocked by mistake
-    false_negatives = 0 # Fraud that slipped through
+    await producer.start()
+    print(f"Data Replay Producer connected to Redpanda at {REDPANDA_BROKER}")
+    print(f"Initiating stream with {len(df)} real patterns at {requests_per_second} req/sec...")
+    print("-" * 75)
 
     try:
         while True:
-            # Simulate random arrival of transactions by sampling uniformly
+            # Randomly sample one transaction from the CSV
             row = df.sample(1).iloc[0]
             
-            # Explicitly cast pandas types to native Python types (int, float) 
-            # to prevent JSON serialization errors in the FastAPI backend.
+            # Construct the payload.
+            # CRITICAL: We include the 'real_label_Fraud' as a hidden tracker.
+            # The API will ignore it for prediction, but pass it downstream 
+            # to PostgreSQL and the Results Topic for final evaluation.
             payload: Dict[str, Any] = {
                 "type": int(row['type']),
                 "amount": float(row['amount']),
@@ -46,65 +48,27 @@ def run_infinite_shadow_stream(requests_per_second: int = 3) -> None:
                 "hourOfDay": int(row['hourOfDay']),
                 "errorBalanceOrig": float(row['errorBalanceOrig']),
                 "errorBalanceDest": float(row['errorBalanceDest']),
-                "fractionAmount": float(row['fractionAmount'])
+                "fractionAmount": float(row['fractionAmount']),
+                "real_label_Fraud": bool(row['real_label_Fraud']) 
             }
 
-            real_label = bool(row['real_label_Fraud'])
-            start_time = time.time()
+            # Fire and Forget into Redpanda
+            await producer.send_and_wait(TOPIC, value=payload)
             
-            try:
-                # Network failsafe: 2-second timeout prevents the simulation 
-                # from hanging indefinitely if the Docker container crashes.
-                response = requests.post(API_URL, json=payload, timeout=2.0)
-                latency = round((time.time() - start_time) * 1000)
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    prediction = result['is_fraud']
-                    prob = result['fraud_probability']
-                    
-                    total += 1
-                    
-                    # Real-time Confusion Matrix logic and console formatting
-                    if prediction and real_label:
-                        true_positives += 1
-                        print(f"[FRAUD STOPPED]  | Prob: {prob:>5.1f}% | Lat: {latency:>3}ms")
-                    elif prediction and not real_label:
-                        false_positives += 1
-                        print(f"[FALSE ALARM]    | Prob: {prob:>5.1f}% | Lat: {latency:>3}ms")
-                    elif not prediction and real_label:
-                        false_negatives += 1
-                        print(f"[FRAUD ESCAPED]  | Prob: {prob:>5.1f}% | Lat: {latency:>3}ms")
-                    else:
-                        print(f"[LEGAL APPROVED] | Prob: {prob:>5.1f}% | Lat: {latency:>3}ms")
+            # Simple console output (Since we can't calculate True Positives here anymore)
+            status = "REAL FRAUD" if payload['real_label_Fraud'] else "🟢 LEGAL"
+            print(f"[SENT] Amount: ${payload['amount']:>8.2f} | Ground Truth: {status}")
+            
+            # Control throughput
+            await asyncio.sleep(1 / requests_per_second)
 
-                else:
-                    print(f"API Error: HTTP {response.status_code}")
-
-            except requests.exceptions.RequestException as e:
-                # Catch connection drops without killing the main loop
-                print(f"[CONNECTION ERROR] Waiting for container response... Details: {e}")
-
-            # Control the throughput of the simulation
-            time.sleep(1 / requests_per_second)
-
+    except asyncio.CancelledError:
+        pass
     except KeyboardInterrupt:
-        # Graceful shutdown and final executive summary
         print("\nStreaming halted by user.")
-        print("=" * 50)
-        print("EXECUTIVE BUSINESS REPORT (SHADOW TEST)")
-        print("=" * 50)
-        print(f"Total transactions evaluated: {total}")
-        
-        if total > 0:
-            print(f"Fraud Stopped (True Positives):    {true_positives}")
-            print(f"Fraud Escaped (False Negatives):   {false_negatives}")
-            print(f"False Alarms (False Positives):    {false_positives}")
-            
-            # Safe recall calculation preventing division by zero
-            recall = (true_positives / (true_positives + false_negatives) * 100) if (true_positives + false_negatives) > 0 else 0
-            print(f"\nModel Effectiveness (Recall): {recall:.1f}% of attacks blocked.")
-        print("=" * 50)
+    finally:
+        await producer.stop()
+        print("Producer disconnected.")
 
 if __name__ == "__main__":
-    run_infinite_shadow_stream(requests_per_second = 3)
+    asyncio.run(run_shadow_stream(requests_per_second=3))
