@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # Message Broker for high-throughput transaction streaming
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.2.2
+    container_name: sentinel-broker
+    ports:
+      - "19092:19092" 
+      - "9644:9644" 
+    command:
+      - redpanda
+      - start
+      - --mode dev-container 
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "info"] 
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Persistent storage for fraud logs and historical audit
+  postgres:
+    image: postgres:15-alpine
+    container_name: sentinel-db
+    environment:
+      POSTGRES_USER: sentinel_admin
+      POSTGRES_PASSWORD: super_secret_password 
+      POSTGRES_DB: sentinel_db
+    ports:
+      - "5432:5432" 
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentinel_admin -d sentinel_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Sentinel Inference API (FastAPI + XGBoost)
+  sentinel-api:
+    build: . # Builds the image from the Dockerfile in the current directory
+    container_name: sentinel-inference
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      - REDPANDA_BROKER=redpanda:9092
+      - DATABASE_URL=postgresql://sentinel_admin:super_secret_password@postgres:5432/sentinel_db
+      - PYTHONUNBUFFERED=1
+    # Healthcheck ensures the API waits for dependencies to be fully ready
+    restart: always
+
+volumes:
+  redpanda_data: # Persists Redpanda stream data across restarts
+  postgres_data: # Persists PostgreSQL records for fraud analysis
