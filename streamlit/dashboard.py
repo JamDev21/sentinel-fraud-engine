@@ -1,13 +1,6 @@
 """
-╔══════════════════════════════════════════════════════════════════════╗
-║  SENTINEL  —  Enterprise Fraud Detection Dashboard                   ║
-║  Stack: Streamlit · aiokafka · asyncpg · Plotly · Altair             ║
-║  Author: Senior Full-Stack Data Engineer (AI-generated scaffold)     ║
-╚══════════════════════════════════════════════════════════════════════╝
-
-Run:
-    pip install streamlit aiokafka asyncpg plotly altair pandas numpy psycopg2-binary
-    streamlit run dashboard.py
+SENTINEL  —  Enterprise Fraud Detection Dashboard                   
+Stack: Streamlit · aiokafka · asyncpg · Plotly · Altair                                                           
 """
 # ─── Standard Library ────────────────────────────────────────────────────────
 import asyncio
@@ -40,7 +33,7 @@ try:
     KAFKA_AVAILABLE = True
 except ImportError:
     KAFKA_AVAILABLE = False
-    st.warning("aiokafka no instalado. Usando datos simulados.")
+    st.warning("aiokafka is not installed. Using simulated data.")
 
 try:
     import asyncpg
